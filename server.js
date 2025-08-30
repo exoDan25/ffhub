@@ -12,6 +12,29 @@ const server = http.createServer((req, res) => {
   res.end("Relay server running...");
 });
 
+import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
+
+// When Twilio sends audio
+if (msg.event === "media") {
+  const pcm = decodeUlawToPCM16(msg.media.payload);
+  elevenlabsWS.send(
+    JSON.stringify({ type: "audio", audio: Array.from(pcm) })
+  );
+}
+
+// When ElevenLabs sends audio
+if (msg.type === "audio") {
+  const pcmChunk = new Int16Array(msg.audio);
+  const ulawB64 = encodePCM16ToUlawBase64(pcmChunk);
+  twilioWS.send(
+    JSON.stringify({
+      event: "media",
+      streamSid,
+      media: { payload: ulawB64 },
+    })
+  );
+}
+
 // WebSocket server
 const wss = new WebSocketServer({ noServer: true });
 
