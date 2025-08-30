@@ -131,3 +131,13 @@ const port = process.env.PORT || 3000;
 server.listen(port, "0.0.0.0", () => {
   console.log(`Relay listening on ${port}`);
 });
+server.on("upgrade", (req, socket, head) => {
+  console.log("🔎 Upgrade request:", req.url); // 👈 log upgrade attempts
+  if (req.url === "/twilio") {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
