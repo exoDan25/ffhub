@@ -1,6 +1,7 @@
 // server.js
 import http from "http";
 import { WebSocketServer } from "ws";
+import WebSocket from "ws";
 import fetch from "node-fetch";
 import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
 
