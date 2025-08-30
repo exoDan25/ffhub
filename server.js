@@ -1,7 +1,7 @@
 // server.js
 import http from "http";
 import { WebSocketServer } from "ws";
-import WebSocket from "ws";
+import WebSocket from "ws"; // ✅ needed for ElevenLabs client
 import fetch from "node-fetch";
 import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
 
@@ -40,6 +40,19 @@ wss.on("connection", (twilioWS) => {
 
   elevenlabsWS.on("open", () => {
     console.log("✅ Connected to ElevenLabs Realtime API");
+
+    // ✅ Send session configuration to ElevenLabs
+    elevenlabsWS.send(
+      JSON.stringify({
+        type: "session.update",
+        session: {
+          voice: "Rachel", // 👈 change to your preferred voice
+          model: "eleven_monolingual_v1",
+          input_audio_format: { type: "pcm16" },
+          output_audio_format: { type: "pcm16" },
+        },
+      })
+    );
   });
 
   elevenlabsWS.on("error", (err) => {
@@ -54,16 +67,18 @@ wss.on("connection", (twilioWS) => {
       if (msg.event === "start") {
         streamSid = msg.start.streamSid;
         console.log("📞 Call started:", streamSid);
-        elevenlabsWS.send(JSON.stringify({ type: "start" }));
       } else if (msg.event === "media") {
         // Convert μ-law → PCM16 and send to ElevenLabs
         const pcm = decodeUlawToPCM16(msg.media.payload);
         elevenlabsWS.send(
-          JSON.stringify({ type: "audio", audio: Array.from(pcm) })
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: Array.from(pcm),
+          })
         );
       } else if (msg.event === "stop") {
         console.log("🛑 Call ended");
-        elevenlabsWS.send(JSON.stringify({ type: "stop" }));
+        elevenlabsWS.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         twilioWS.close();
       }
     } catch (err) {
@@ -77,6 +92,7 @@ wss.on("connection", (twilioWS) => {
       const msg = JSON.parse(raw.toString());
 
       if (msg.type === "audio") {
+        console.log("🔊 Got audio from ElevenLabs");
         // Convert PCM16 → μ-law and send back to Twilio
         const pcmChunk = new Int16Array(msg.audio);
         const ulawB64 = encodePCM16ToUlawBase64(pcmChunk);
@@ -98,6 +114,8 @@ wss.on("connection", (twilioWS) => {
         }).catch((err) =>
           console.error("❌ Failed to send results to N8N:", err.message)
         );
+      } else {
+        console.log("📩 ElevenLabs message:", msg.type);
       }
     } catch (err) {
       console.error("❌ Error parsing ElevenLabs message:", err);
