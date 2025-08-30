@@ -1,7 +1,7 @@
 // server.js
 import http from "http";
 import { WebSocketServer } from "ws";
-import WebSocket from "ws"; // ✅ needed for ElevenLabs client
+import WebSocket from "ws"; // for ElevenLabs client
 import fetch from "node-fetch";
 import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
 
@@ -19,6 +19,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 
 server.on("upgrade", (req, socket, head) => {
+  console.log("🔎 Upgrade request:", req.url); // log upgrade attempts
   if (req.url === "/twilio") {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
@@ -28,8 +29,8 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-wss.on("connection", (twilioWS) => {
-  console.log("✅ Twilio WebSocket connected");
+wss.on("connection", (twilioWS, req) => {
+  console.log("✅ Twilio WebSocket connected from:", req.socket.remoteAddress);
 
   let streamSid = null;
 
@@ -41,12 +42,12 @@ wss.on("connection", (twilioWS) => {
   elevenlabsWS.on("open", () => {
     console.log("✅ Connected to ElevenLabs Realtime API");
 
-    // ✅ Send session configuration to ElevenLabs
+    // Send session configuration
     elevenlabsWS.send(
       JSON.stringify({
         type: "session.update",
         session: {
-          voice: "Rachel", // 👈 change to your preferred voice
+          voice: "Rachel", // change to your preferred voice
           model: "eleven_monolingual_v1",
           input_audio_format: { type: "pcm16" },
           output_audio_format: { type: "pcm16" },
@@ -61,13 +62,16 @@ wss.on("connection", (twilioWS) => {
 
   // Handle messages from Twilio
   twilioWS.on("message", (raw) => {
+    console.log("📩 Raw Twilio message:", raw.toString().slice(0, 100)); // log first 100 chars
     try {
       const msg = JSON.parse(raw.toString());
+      console.log("📩 Parsed Twilio event:", msg.event);
 
       if (msg.event === "start") {
         streamSid = msg.start.streamSid;
         console.log("📞 Call started:", streamSid);
       } else if (msg.event === "media") {
+        console.log("🎙️ Got audio chunk from Twilio");
         // Convert μ-law → PCM16 and send to ElevenLabs
         const pcm = decodeUlawToPCM16(msg.media.payload);
         elevenlabsWS.send(
@@ -82,12 +86,13 @@ wss.on("connection", (twilioWS) => {
         twilioWS.close();
       }
     } catch (err) {
-      console.error("❌ Error parsing Twilio message:", err);
+      console.error("❌ Error parsing Twilio message:", err.message);
     }
   });
 
   // Handle messages from ElevenLabs
   elevenlabsWS.on("message", (raw) => {
+    console.log("📩 Raw ElevenLabs message:", raw.toString().slice(0, 100));
     try {
       const msg = JSON.parse(raw.toString());
 
@@ -115,29 +120,23 @@ wss.on("connection", (twilioWS) => {
           console.error("❌ Failed to send results to N8N:", err.message)
         );
       } else {
-        console.log("📩 ElevenLabs message:", msg.type);
+        console.log("📩 ElevenLabs message type:", msg.type);
       }
     } catch (err) {
-      console.error("❌ Error parsing ElevenLabs message:", err);
+      console.error("❌ Error parsing ElevenLabs message:", err.message);
     }
   });
 
   twilioWS.on("close", () => {
     console.log("❌ Twilio WebSocket disconnected");
   });
+
+  twilioWS.on("error", (err) => {
+    console.error("❌ Twilio WebSocket error:", err.message);
+  });
 });
 
 const port = process.env.PORT || 3000;
 server.listen(port, "0.0.0.0", () => {
   console.log(`Relay listening on ${port}`);
-});
-server.on("upgrade", (req, socket, head) => {
-  console.log("🔎 Upgrade request:", req.url); // 👈 log upgrade attempts
-  if (req.url === "/twilio") {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
-    });
-  } else {
-    socket.destroy();
-  }
 });
