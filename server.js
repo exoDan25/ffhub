@@ -34,13 +34,23 @@ wss.on("connection", (twilioWS, req) => {
 
   let streamSid = null;
 
-  // Connect to ElevenLabs Realtime API
-  const elevenlabsWS = new WebSocket("wss://api.elevenlabs.io/v1/realtime", {
+  
+  
+// Connect to ElevenLabs Convai Agent
+const elevenlabsWS = new WebSocket(
+  `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`,
+  {
     headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
-  });
+  }
+);
 
-  elevenlabsWS.on("open", () => {
-    console.log("✅ Connected to ElevenLabs Realtime API");
+elevenlabsWS.on("open", () => {
+  console.log("✅ Connected to ElevenLabs Convai Agent");
+});
+
+elevenlabsWS.on("error", (err) => {
+  console.error("❌ ElevenLabs error:", err.message);
+});
 
     // Send session configuration
     elevenlabsWS.send(
