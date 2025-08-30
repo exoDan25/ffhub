@@ -65,17 +65,14 @@ wss.on("connection", (twilioWS, req) => {
 
   // Handle messages from Twilio
   twilioWS.on("message", (raw) => {
-    console.log("📩 Raw Twilio message:", raw.toString().slice(0, 100));
     try {
       const msg = JSON.parse(raw.toString());
-      console.log("📩 Parsed Twilio event:", msg.event);
 
       if (msg.event === "start") {
         streamSid = msg.start.streamSid;
         console.log("📞 Call started:", streamSid);
       } else if (msg.event === "media") {
         console.log("🎙️ Got audio chunk from Twilio");
-        // Convert μ-law → PCM16 and send to ElevenLabs
         const pcm = decodeUlawToPCM16(msg.media.payload);
         elevenlabsWS.send(
           JSON.stringify({
@@ -95,13 +92,11 @@ wss.on("connection", (twilioWS, req) => {
 
   // Handle messages from ElevenLabs
   elevenlabsWS.on("message", (raw) => {
-    console.log("📩 Raw ElevenLabs message:", raw.toString().slice(0, 100));
     try {
       const msg = JSON.parse(raw.toString());
 
       if (msg.type === "audio") {
         console.log("🔊 Got audio from ElevenLabs");
-        // Convert PCM16 → μ-law and send back to Twilio
         const pcmChunk = new Int16Array(msg.audio);
         const ulawB64 = encodePCM16ToUlawBase64(pcmChunk);
         twilioWS.send(
@@ -114,7 +109,6 @@ wss.on("connection", (twilioWS, req) => {
       } else if (msg.type === "result") {
         console.log("🤖 AI Result:", msg.data);
 
-        // Forward results to N8N
         fetch(`${process.env.N8N_URL}/webhook/agent-results`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -126,7 +120,7 @@ wss.on("connection", (twilioWS, req) => {
         console.log("📩 ElevenLabs message type:", msg.type);
       }
     } catch (err) {
-      console.error("❌ Error parsing ElevenLabs message:", err);
+      console.error("❌ Error parsing ElevenLabs message:", err.message);
     }
   });
 
