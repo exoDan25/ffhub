@@ -19,7 +19,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 
 server.on("upgrade", (req, socket, head) => {
-  console.log("🔎 Upgrade request:", req.url); // log upgrade attempts
+  console.log("🔎 Upgrade request:", req.url);
   if (req.url === "/twilio") {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
@@ -34,25 +34,18 @@ wss.on("connection", (twilioWS, req) => {
 
   let streamSid = null;
 
-  
-  
-// Connect to ElevenLabs Convai Agent
-const elevenlabsWS = new WebSocket(
-  `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`,
-  {
-    headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
-  }
-);
+  // Connect to ElevenLabs Convai Agent
+  const elevenlabsWS = new WebSocket(
+    `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`,
+    {
+      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
+    }
+  );
 
-elevenlabsWS.on("open", () => {
-  console.log("✅ Connected to ElevenLabs Convai Agent");
-});
+  elevenlabsWS.on("open", () => {
+    console.log("✅ Connected to ElevenLabs Convai Agent");
 
-elevenlabsWS.on("error", (err) => {
-  console.error("❌ ElevenLabs error:", err.message);
-});
-
-    // Send session configuration
+    // Send session configuration once connected
     elevenlabsWS.send(
       JSON.stringify({
         type: "session.update",
@@ -72,7 +65,7 @@ elevenlabsWS.on("error", (err) => {
 
   // Handle messages from Twilio
   twilioWS.on("message", (raw) => {
-    console.log("📩 Raw Twilio message:", raw.toString().slice(0, 100)); // log first 100 chars
+    console.log("📩 Raw Twilio message:", raw.toString().slice(0, 100));
     try {
       const msg = JSON.parse(raw.toString());
       console.log("📩 Parsed Twilio event:", msg.event);
@@ -133,7 +126,7 @@ elevenlabsWS.on("error", (err) => {
         console.log("📩 ElevenLabs message type:", msg.type);
       }
     } catch (err) {
-      console.error("❌ Error parsing ElevenLabs message:", err.message);
+      console.error("❌ Error parsing ElevenLabs message:", err);
     }
   });
 
