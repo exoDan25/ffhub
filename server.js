@@ -41,7 +41,7 @@ wss.on("connection", (twilioWS, req) => {
  const elevenlabsWS = new WebSocket(
   `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`,
   {
-    headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
+    headers: { "Authorization": `Bearer ${process.env.ELEVENLABS_API_KEY}` },
   }
 );
 
