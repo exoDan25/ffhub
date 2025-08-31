@@ -1,4 +1,3 @@
-// server.js
 import http from "http";
 import { WebSocketServer } from "ws";
 import WebSocket from "ws";
@@ -8,6 +7,20 @@ import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
 console.log("🚀 Relay starting up...");
 console.log("🔑 ELEVENLABS_API_KEY:", process.env.ELEVENLABS_API_KEY ? "Loaded" : "Missing");
 console.log("🤖 ELEVENLABS_AGENT_ID:", process.env.ELEVENLABS_AGENT_ID);
+
+// Fetch signed URL for private agent
+let signedUrl;
+async function getSignedUrl() {
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${process.env.ELEVENLABS_AGENT_ID}`,
+    {
+      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
+    }
+  );
+  const data = await response.json();
+  signedUrl = data.signed_url;
+}
+await getSignedUrl();
 
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
@@ -38,18 +51,13 @@ wss.on("connection", (twilioWS, req) => {
 
   let streamSid = null;
 
-  // ********************     Connect to ElevenLabs Convai Agent
- const elevenlabsWS = new WebSocket(
-  `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${process.env.ELEVENLABS_AGENT_ID}`,
-  {
-    headers: { "Authorization": `Bearer ${process.env.ELEVENLABS_API_KEY}` },
-  }
-);
+  // Use the signed URL for the WebSocket connection
+  const elevenlabsWS = new WebSocket(signedUrl);
 
-elevenlabsWS.on("open", () => {
-  console.log("✅ Connected to ElevenLabs Convai Agent at:", `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`);
-  elevenlabsWS.send(JSON.stringify({ type: "session.update" }));
-});
+  elevenlabsWS.on("open", () => {
+    console.log("✅ Connected to ElevenLabs Convai Agent at:", signedUrl);
+    elevenlabsWS.send(JSON.stringify({ type: "session.update" }));
+  });
 
   elevenlabsWS.on("error", (err) => {
     console.error("❌ ElevenLabs error:", err.message);
