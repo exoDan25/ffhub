@@ -46,11 +46,10 @@ wss.on("connection", (twilioWS, req) => {
   }
 );
 
-  elevenlabsWS.on("open", () => {
-    console.log("✅ Connected to ElevenLabs Convai Agent");
-    // For Convai, just confirm session
-    elevenlabsWS.send(JSON.stringify({ type: "session.update" }));
-  });
+elevenlabsWS.on("open", () => {
+  console.log("✅ Connected to ElevenLabs Convai Agent at:", `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`);
+  elevenlabsWS.send(JSON.stringify({ type: "session.update" }));
+});
 
   elevenlabsWS.on("error", (err) => {
     console.error("❌ ElevenLabs error:", err.message);
