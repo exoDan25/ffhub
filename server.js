@@ -119,6 +119,11 @@ wss.on("connection", (twilioWS, req) => {
         const ulawB64 = encodePCM16ToUlawBase64(pcm16_8k);
 
         if (callStreamSid) {
+          console.log("📤 Sending to Twilio:", JSON.stringify({
+  event: "media",
+  streamSid: callStreamSid,
+  media: { payload: ulawB64 },
+}).slice(0, 80) + "...");
           twilioWS.send(
             JSON.stringify({
               event: "media",
