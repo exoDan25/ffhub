@@ -4,6 +4,8 @@ import { WebSocketServer } from "ws";
 import WebSocket from "ws"; // for ElevenLabs client
 import fetch from "node-fetch";
 import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
+console.log("🔑 ELEVENLABS_API_KEY:", process.env.ELEVENLABS_API_KEY ? "Loaded" : "Missing");
+console.log("🤖 ELEVENLABS_AGENT_ID:", process.env.ELEVENLABS_AGENT_ID);
 
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
