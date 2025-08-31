@@ -1,9 +1,10 @@
 // server.js
 import http from "http";
 import { WebSocketServer } from "ws";
-import WebSocket from "ws"; // for ElevenLabs client
+import WebSocket from "ws";
 import fetch from "node-fetch";
 import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
+
 console.log("🔑 ELEVENLABS_API_KEY:", process.env.ELEVENLABS_API_KEY ? "Loaded" : "Missing");
 console.log("🤖 ELEVENLABS_AGENT_ID:", process.env.ELEVENLABS_AGENT_ID);
 
@@ -17,7 +18,6 @@ const server = http.createServer((req, res) => {
   res.end("Relay server running...");
 });
 
-// WebSocket server for Twilio
 const wss = new WebSocketServer({ noServer: true });
 
 server.on("upgrade", (req, socket, head) => {
@@ -46,23 +46,16 @@ wss.on("connection", (twilioWS, req) => {
 
   elevenlabsWS.on("open", () => {
     console.log("✅ Connected to ElevenLabs Convai Agent");
-
-    // Send session configuration once connected
-    elevenlabsWS.send(
-      JSON.stringify({
-        type: "session.update",
-        session: {
-          voice: "Rachel", // change to your preferred voice
-          model: "eleven_monolingual_v1",
-          input_audio_format: { type: "pcm16" },
-          output_audio_format: { type: "pcm16" },
-        },
-      })
-    );
+    // For Convai, just confirm session
+    elevenlabsWS.send(JSON.stringify({ type: "session.update" }));
   });
 
   elevenlabsWS.on("error", (err) => {
     console.error("❌ ElevenLabs error:", err.message);
+  });
+
+  elevenlabsWS.on("close", (code, reason) => {
+    console.error("❌ ElevenLabs closed:", code, reason.toString());
   });
 
   // Handle messages from Twilio
@@ -99,7 +92,9 @@ wss.on("connection", (twilioWS, req) => {
 
       if (msg.type === "audio") {
         console.log("🔊 Got audio from ElevenLabs");
-        const pcmChunk = new Int16Array(msg.audio);
+        // Decode base64 PCM16 → Int16Array
+        const buffer = Buffer.from(msg.audio, "base64");
+        const pcmChunk = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
         const ulawB64 = encodePCM16ToUlawBase64(pcmChunk);
         twilioWS.send(
           JSON.stringify({
