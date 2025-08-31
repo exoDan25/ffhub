@@ -5,6 +5,7 @@ import WebSocket from "ws";
 import fetch from "node-fetch";
 import { decodeUlawToPCM16, encodePCM16ToUlawBase64 } from "./transcode.js";
 
+console.log("🚀 Relay starting up...");
 console.log("🔑 ELEVENLABS_API_KEY:", process.env.ELEVENLABS_API_KEY ? "Loaded" : "Missing");
 console.log("🤖 ELEVENLABS_AGENT_ID:", process.env.ELEVENLABS_AGENT_ID);
 
