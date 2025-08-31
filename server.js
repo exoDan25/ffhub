@@ -29,6 +29,7 @@ server.on("upgrade", (req, socket, head) => {
     });
   } else {
     socket.destroy();
+    console.log("❌ Invalid upgrade path:", req.url);
   }
 });
 
