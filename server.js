@@ -38,11 +38,11 @@ wss.on("connection", (twilioWS, req) => {
 
   // Connect to ElevenLabs Convai Agent
   const elevenlabsWS = new WebSocket(
-    `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream`,
-    {
-      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
-    }
-  );
+  `wss://api.elevenlabs.io/v1/convai/agent/${process.env.ELEVENLABS_AGENT_ID}/stream?model=eleven_monolingual_v1`,
+  {
+    headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
+  }
+);
 
   elevenlabsWS.on("open", () => {
     console.log("✅ Connected to ElevenLabs Convai Agent");
