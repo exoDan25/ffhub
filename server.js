@@ -17,7 +17,7 @@ console.log("🔑 ELEVENLABS_API_KEY:", ELEVEN_KEY ? "Loaded" : "Missing");
 
 // ---------- helpers ----------
 
-// upsample 8 kHz PCM16 -> 16 kHz (duplicate samples)
+// naive 2x upsample: 8 kHz PCM16 -> 16 kHz PCM16 (duplicate samples)
 function upsample2x(int16_8k) {
   const out = new Int16Array(int16_8k.length * 2);
   for (let i = 0, j = 0; i < int16_8k.length; i++) {
@@ -28,43 +28,33 @@ function upsample2x(int16_8k) {
   return out;
 }
 
-// downsample 16 kHz PCM16 -> 8 kHz (drop every 2nd sample)
+// naive 2x downsample: 16 kHz PCM16 -> 8 kHz PCM16 (drop every 2nd sample)
 function downsample2x(int16_16k) {
   const out = new Int16Array(Math.floor(int16_16k.length / 2));
   for (let i = 0, j = 0; i < out.length; i++, j += 2) out[i] = int16_16k[j];
   return out;
 }
 
-// Int16Array <-> base64 PCM16
+// Int16Array -> base64 PCM16
 function int16ToBase64PCM(int16) {
   const buf = Buffer.from(int16.buffer, int16.byteOffset, int16.byteLength);
   return buf.toString("base64");
 }
+
+// base64 -> Int16Array (PCM16)
 function base64ToInt16(b64) {
   const buf = Buffer.from(b64, "base64");
   return new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 2));
 }
 
-// Twilio outbound framing: μ-law @ 8kHz, 20ms = 160 bytes per media frame.
-// IMPORTANT: `track` must be top-level (sibling of `media`) for Twilio.
-function sendUlawToTwilioFramed(ws, streamSid, ulawBase64) {
-  const BYTES_PER_FRAME = 160; // 20ms
-  const bytes = Buffer.from(ulawBase64, "base64");
-
-  for (let i = 0; i < bytes.length; i += BYTES_PER_FRAME) {
-    const frame = bytes.subarray(i, Math.min(i + BYTES_PER_FRAME, bytes.length));
-    ws.send(
-      JSON.stringify({
-        event: "media",
-        streamSid,
-        track: "outbound",
-        media: { payload: frame.toString("base64") },
-      })
-    );
+// Slice an Int16Array into 20ms frames for Twilio: 160 samples @ 8kHz
+function* sliceIntoFrames(int16_8k, samplesPerFrame = 160) {
+  for (let i = 0; i < int16_8k.length; i += samplesPerFrame) {
+    yield int16_8k.subarray(i, Math.min(i + samplesPerFrame, int16_8k.length));
   }
 }
 
-// ---------- signed URL for ElevenLabs Agent WS ----------
+// ---------- get signed URL for ElevenLabs Agent WS ----------
 let signedUrl;
 async function getSignedUrl() {
   const r = await fetch(
@@ -110,38 +100,44 @@ wss.on("connection", (twilioWS, req) => {
   let callStreamSid = null;
   let eleven;               // WebSocket to ElevenLabs
   let lastCreateAt = 0;     // throttle response.create
-  const CREATE_INTERVAL_MS = 1200;
+  const CREATE_INTERVAL_MS = 1200; // ask for output ~1.2s cadence
 
   // connect to ElevenLabs ConvAI Agent
   eleven = new WebSocket(signedUrl);
 
   eleven.on("open", () => {
     console.log("✅ Connected to ElevenLabs ConvAI Agent");
+    // You may send conversation_initiation_client_data here if needed.
   });
 
+  // ElevenLabs -> Twilio (agent audio to caller)
   eleven.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
 
-      if (msg.type === "ping") {
-        // keepalive
-        return;
-      }
+      if (msg.type === "ping") return;
 
-      // ElevenLabs "audio" message: PCM16 (16kHz) base64 at msg.audio_event.audio_base_64
       if (msg.type === "audio" && msg.audio_event?.audio_base_64) {
+        // EL sends PCM16 16kHz -> downsample to 8k, μ-law, 20ms frames
         const pcm16_16k = base64ToInt16(msg.audio_event.audio_base_64);
         const pcm16_8k  = downsample2x(pcm16_16k);
-        const ulawB64   = encodePCM16ToUlawBase64(pcm16_8k);
 
-        if (callStreamSid) {
-          sendUlawToTwilioFramed(twilioWS, callStreamSid, ulawB64);
+        for (const frame of sliceIntoFrames(pcm16_8k, 160)) {
+          const ulawB64 = encodePCM16ToUlawBase64(frame);
+          if (callStreamSid && twilioWS.readyState === 1) {
+            twilioWS.send(JSON.stringify({
+              event: "media",
+              streamSid: callStreamSid,
+              media: { payload: ulawB64 },
+            }));
+          }
         }
         console.log("🔊 Got audio from ElevenLabs → sent to Twilio");
-        return;
+      } else if (msg.type === "agent_response") {
+        console.log("📩 ElevenLabs message: agent_response");
+      } else {
+        console.log("📩 ElevenLabs message:", msg.type);
       }
-
-      console.log("📩 ElevenLabs message:", msg.type);
     } catch (e) {
       console.error("❌ ElevenLabs message parse error:", e.message);
     }
@@ -150,7 +146,7 @@ wss.on("connection", (twilioWS, req) => {
   eleven.on("error", (e) => console.error("❌ ElevenLabs WS error:", e.message));
   eleven.on("close", (c, r) => console.error("❌ ElevenLabs closed:", c, r?.toString?.() || ""));
 
-  // Twilio -> ElevenLabs
+  // Twilio -> ElevenLabs (caller audio to agent)
   twilioWS.on("message", (buf) => {
     try {
       const data = JSON.parse(buf.toString());
@@ -158,6 +154,13 @@ wss.on("connection", (twilioWS, req) => {
       if (data.event === "start") {
         callStreamSid = data.start?.streamSid;
         console.log("📞 Call started:", callStreamSid);
+        // kick off first response prompt shortly after start
+        setTimeout(() => {
+          if (eleven?.readyState === 1) {
+            eleven.send(JSON.stringify({ type: "response.create" }));
+            console.log("🪄 response.create");
+          }
+        }, 300);
         return;
       }
 
@@ -167,14 +170,14 @@ wss.on("connection", (twilioWS, req) => {
         const pcm16_16k = upsample2x(pcm16_8k);
         const b64       = int16ToBase64PCM(pcm16_16k);
 
-        // stream chunk to ElevenLabs
-        if (eleven?.readyState === WebSocket.OPEN) {
+        // send user audio chunk to EL
+        if (eleven?.readyState === 1) {
           eleven.send(JSON.stringify({ type: "user_audio_chunk", audio: b64 }));
         }
 
-        // periodically ask ElevenLabs to speak
+        // roughly every ~1.2s ask EL to speak
         const now = Date.now();
-        if (now - lastCreateAt > CREATE_INTERVAL_MS && eleven?.readyState === WebSocket.OPEN) {
+        if (now - lastCreateAt > CREATE_INTERVAL_MS && eleven?.readyState === 1) {
           lastCreateAt = now;
           eleven.send(JSON.stringify({ type: "response.create" }));
           console.log("🪄 response.create");
@@ -184,10 +187,10 @@ wss.on("connection", (twilioWS, req) => {
 
       if (data.event === "stop") {
         console.log("🛑 Call ended");
-        if (eleven?.readyState === WebSocket.OPEN) {
-          eleven.send(JSON.stringify({ type: "response.create" }));
+        if (eleven?.readyState === 1) {
+          eleven.send(JSON.stringify({ type: "response.create" })); // finalization
         }
-        twilioWS.close();
+        try { twilioWS.close(); } catch {}
         return;
       }
     } catch (e) {
