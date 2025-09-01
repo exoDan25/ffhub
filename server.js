@@ -123,9 +123,17 @@ wss.on("connection", async (twilioWS, req) => {
     return;
   }
 
-  eleven.on("open", () => console.log("✅ Connected to ElevenLabs ConvAI Agent"));
+  eleven.on("open", () => {
+    console.log("✅ Connected to ElevenLabs ConvAI Agent");
+    // ⚡ Force initial greeting
+    setTimeout(() => {
+      if (eleven?.readyState === 1) {
+        console.log("⚡ Forcing initial response.create");
+        eleven.send(JSON.stringify({ type: "response.create" }));
+      }
+    }, 500);
+  });
 
-  // 🔎 NEW: log unexpected handshake responses
   eleven.on("unexpected-response", (req, res) => {
     console.error("❌ ElevenLabs unexpected response:", res.statusCode, res.statusMessage);
     res.on("data", (chunk) => console.error("Body:", chunk.toString()));
@@ -137,7 +145,7 @@ wss.on("connection", async (twilioWS, req) => {
     try { msg = JSON.parse(raw.toString()); } catch (e) {
       console.error("❌ ElevenLabs message parse error:", e.message); return;
     }
-    if (msg.type && msg.type !== "ping") console.log("📩 ElevenLabs message:", msg.type);
+    console.log("📩 ElevenLabs full message:", msg);
 
     const audioB64 = msg?.audio_event?.audio_base_64 || msg?.audio;
     if (msg.type === "audio" && audioB64) {
@@ -154,6 +162,7 @@ wss.on("connection", async (twilioWS, req) => {
   eleven.on("close", (c, r) => { console.error("❌ ElevenLabs closed:", c, r?.toString?.() || ""); stopPacedSender(); });
 
   // Twilio -> ElevenLabs
+  let mediaCount = 0;
   twilioWS.on("message", (buf) => {
     let data;
     try { data = JSON.parse(buf.toString()); } catch (e) {
@@ -168,6 +177,9 @@ wss.on("connection", async (twilioWS, req) => {
     }
 
     if (data.event === "media" && data.media?.payload) {
+      mediaCount++;
+      if (mediaCount % 50 === 0) console.log(`🎙️ Received ${mediaCount} audio chunks from Twilio`);
+
       const pcm16_8k  = decodeUlawToPCM16(data.media.payload);
       const pcm16_16k = upsample2x(pcm16_8k);
       const b64       = int16ToB64PCM(pcm16_16k);
@@ -178,6 +190,7 @@ wss.on("connection", async (twilioWS, req) => {
         gotCallerAudio = true;
         setTimeout(() => {
           if (eleven?.readyState === 1) {
+            console.log("⚡ Sending first response.create after caller audio");
             eleven.send(JSON.stringify({ type: "response.create" }));
             lastCreateAt = Date.now();
           }
@@ -185,6 +198,7 @@ wss.on("connection", async (twilioWS, req) => {
       } else {
         const now = Date.now();
         if (now - lastCreateAt > CREATE_INTERVAL_MS && eleven?.readyState === 1) {
+          console.log("⚡ Sending periodic response.create");
           eleven.send(JSON.stringify({ type: "response.create" }));
           lastCreateAt = now;
         }
